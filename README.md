@@ -27,21 +27,18 @@
 
 ## 📄 Table of Contents
 
-- [🥳 What's New](#🥳-whats-new-⏏️)
-- [👋 Brief Introduction](#👋-brief-introduction-⏏️)
-- [🔥 Highlight](#🔥-highlight-⏏️)
-  - [🗝️Key Features](#🗝️key-features)
-  - [⛏️Model Zoo](#⛏️model-zoo)
-- [📋 Usage](#📋-usage-⏏️)
-  - [📜 Docs](#📜-docs-⏏️)
-    - [🔜Quick Start](#🔜quick-start-⏏️)
-    - [📋User Guide](#📋quick-guide-⏏️)
-    - [🚀Load Custom Model](#🚀load-custom-model-⏏️)
-  - [🧷Hotkeys](#🧷-hotkeys-⏏️)
-- [📧 Contact](#📧-contact-⏏️)
-- [✅ License](#✅-license-⏏️)
-- [🙏🏻 Acknowledgments](#🙏🏻-acknowledgments-⏏️)
-- [🏷️ Citing](#🏷️-citing-⏏️)
+- [📄 Table of Contents](#-table-of-contents)
+- [🥳 What's New ⏏️](#-whats-new-️)
+- [👋 Brief Introduction ⏏️](#-brief-introduction-️)
+- [🔥 Highlight ⏏️](#-highlight-️)
+  - [🗝️Key Features](#️key-features)
+  - [⛏️Model Zoo](#️model-zoo)
+- [📋 Usage ⏏️](#-usage-️)
+- [📧 Contact ⏏️](#-contact-️)
+- [✅ License ⏏️](#-license-️)
+- [🙏🏻 Acknowledgments ⏏️](#-acknowledgments-️)
+- [🏷️ Citing ⏏️](#️-citing-️)
+  - [BibTeX](#bibtex)
 
 ## 🥳 What's New [⏏️](#📄-table-of-contents)
 
@@ -165,7 +162,7 @@ For more details, please refer to 👉 [model_zoo](./docs/en/model_zoo.md) 👈
 
 - ### 📜Docs
 
-  - ##### 🔜[Quick Start](./docs/en/get_started.md)
+  - ##### 🔜[Quick Start](docs/en/get_started.md)
 
   - ##### 📋[User Guide](./docs/en/user_guide.md)
 
