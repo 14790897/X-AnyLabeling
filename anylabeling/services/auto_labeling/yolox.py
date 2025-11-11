@@ -1,4 +1,3 @@
-import logging
 import os
 import cv2
 import numpy as np
@@ -7,6 +6,7 @@ from PyQt5.QtCore import QCoreApplication
 
 from anylabeling.app_info import __preferred_device__
 from anylabeling.views.labeling.shape import Shape
+from anylabeling.views.labeling.logger import logger
 from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
 from .model import Model
 from .types import AutoLabelingResult
@@ -23,15 +23,15 @@ class YOLOX(Model):
             "display_name",
             "model_path",
             "p6",
-            "nms_threshold",
-            "confidence_threshold",
+            "iou_threshold",
+            "conf_threshold",
             "classes",
         ]
         widgets = [
             "button_run",
-            "input_conf", 
+            "input_conf",
             "edit_conf",
-            "input_iou", 
+            "input_iou",
             "edit_iou",
             "toggle_preserve_existing_annotations",
         ]
@@ -56,20 +56,22 @@ class YOLOX(Model):
         self.p6 = self.config["p6"]
         self.classes = self.config["classes"]
         self.input_shape = self.net.get_input_shape()[-2:]
-        self.nms_thres = self.config["nms_threshold"]
-        self.conf_thres = self.config["confidence_threshold"]
+        self.nms_thres = self.config["iou_threshold"]
+        self.conf_thres = self.config["conf_threshold"]
         self.replace = True
 
     def set_auto_labeling_conf(self, value):
-        """ set auto labeling confidence threshold """
-        self.conf_thres = value
+        """set auto labeling confidence threshold"""
+        if value > 0:
+            self.conf_thres = value
 
     def set_auto_labeling_iou(self, value):
-        """ set auto labeling iou threshold """
-        self.nms_thres = value
+        """set auto labeling iou threshold"""
+        if value > 0:
+            self.nms_thres = value
 
     def set_auto_labeling_preserve_existing_annotations_state(self, state):
-        """ Toggle the preservation of existing annotations based on the checkbox state. """
+        """Toggle the preservation of existing annotations based on the checkbox state."""
         self.replace = not state
 
     def preprocess(self, input_image):
@@ -146,8 +148,8 @@ class YOLOX(Model):
         try:
             image = qt_img_to_rgb_cv_img(image, image_path)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
 
         blob, ratio_hw = self.preprocess(image)
@@ -164,12 +166,14 @@ class YOLOX(Model):
         for box, score, cls_inds in zip(
             final_boxes, final_scores, final_cls_inds
         ):
-            if score < self.config["confidence_threshold"]:
+            if score < self.conf_thres:
                 continue
             x1, y1, x2, y2 = box
             score = float(score)
             label = str(self.classes[int(cls_inds)])
-            rectangle_shape = Shape(label=label, score=score, shape_type="rectangle")
+            rectangle_shape = Shape(
+                label=label, score=score, shape_type="rectangle"
+            )
             rectangle_shape.add_point(QtCore.QPointF(x1, y1))
             rectangle_shape.add_point(QtCore.QPointF(x2, y1))
             rectangle_shape.add_point(QtCore.QPointF(x2, y2))

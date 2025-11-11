@@ -35,7 +35,7 @@ class DecodeImage(object):
         img_mode="RGB",
         channel_first=False,
         ignore_orientation=False,
-        **kwargs
+        **kwargs,
     ):
         self.img_mode = img_mode
         self.channel_first = channel_first
@@ -314,7 +314,7 @@ class DetResizeForTest(object):
             if int(resize_w) <= 0 or int(resize_h) <= 0:
                 return None, (None, None)
             img = cv2.resize(img, (int(resize_w), int(resize_h)))
-        except:
+        except Exception:
             print(img.shape, resize_w, resize_h)
             sys.exit(0)
         ratio_h = resize_h / float(h)
@@ -484,7 +484,7 @@ class SRResize(object):
         min_ratio=1,
         mask=False,
         infer_mode=False,
-        **kwargs
+        **kwargs,
     ):
         self.imgH = imgH
         self.imgW = imgW
@@ -507,7 +507,6 @@ class SRResize(object):
             return data
 
         images_HR = data["image_hr"]
-        label_strs = data["label"]
         transform = ResizeNormalize((imgW, imgH))
         images_HR = transform(images_HR)
         data["img_hr"] = images_HR

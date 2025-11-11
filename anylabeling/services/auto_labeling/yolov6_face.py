@@ -1,14 +1,13 @@
-import logging
-
 import numpy as np
+
 from PyQt5 import QtCore
 from PyQt5.QtCore import QCoreApplication
 
-from anylabeling.app_info import __preferred_device__
 from anylabeling.views.labeling.shape import Shape
+from anylabeling.views.labeling.logger import logger
 from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
-from .types import AutoLabelingResult
 from .__base__.yolo import YOLO
+from .types import AutoLabelingResult
 from .utils import numpy_nms, xywh2xyxy, rescale_box_and_landmark
 
 
@@ -20,7 +19,11 @@ class YOLOv6Face(YOLO):
             "display_name",
             "model_path",
         ]
-        widgets = ["button_run"]
+        widgets = [
+            "button_run",
+            "input_conf",
+            "edit_conf",
+        ]
         output_modes = {
             "point": QCoreApplication.translate("Model", "Point"),
             "rectangle": QCoreApplication.translate("Model", "Rectangle"),
@@ -41,12 +44,12 @@ class YOLOv6Face(YOLO):
         """Runs Non-Maximum Suppression (NMS) on inference results.
         Args:
             prediction: (tensor), with shape [N, 15 + num_classes], N is the number of bboxes.
-            multi_label: (bool), when it is set to True, one box can have multi labels, 
-                                                otherwise, one box only huave one label.
+            multi_label: (bool), when it is set to True, one box can have multi labels,
+                otherwise, one box only huave one label.
             max_det:(int), max number of output bboxes.
         Returns:
-            list of detections, echo item is one tensor with shape (num_boxes, 16), 
-                                                16 is for [xyxy, ldmks, conf, cls].
+            list of detections, echo item is one tensor with shape (num_boxes, 16),
+                16 is for [xyxy, ldmks, conf, cls].
         """
         num_classes = prediction.shape[2] - 15  # number of classes
         pred_candidates = np.logical_and(
@@ -143,8 +146,8 @@ class YOLOv6Face(YOLO):
         try:
             image = qt_img_to_rgb_cv_img(image, image_path)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
 
         blob = self.preprocess(image)
@@ -159,12 +162,17 @@ class YOLOv6Face(YOLO):
 
         shapes = []
         for i, r in enumerate(reversed(results)):
-            xyxy, _, cls_id, lmdks = r[:4], r[4], r[5], r[6:]
+            xyxy, score, cls_id, lmdks = r[:4], r[4], r[5], r[6:]
+            if score < self.conf_thres:
+                continue
             x1, y1, x2, y2 = list(map(int, xyxy))
             lmdks = list(map(int, lmdks))
             label = str(self.classes[int(cls_id)])
             rectangle_shape = Shape(
-                label=label, shape_type="rectangle", group_id=int(i)
+                label=label,
+                shape_type="rectangle",
+                group_id=int(i),
+                score=float(score),
             )
             rectangle_shape.add_point(QtCore.QPointF(x1, y1))
             rectangle_shape.add_point(QtCore.QPointF(x2, y1))

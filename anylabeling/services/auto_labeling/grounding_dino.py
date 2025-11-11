@@ -1,8 +1,7 @@
-import logging
 import os
-
 import cv2
 import numpy as np
+
 from typing import Dict
 from tokenizers import Tokenizer
 
@@ -11,6 +10,7 @@ from PyQt5.QtCore import QCoreApplication
 
 from anylabeling.app_info import __preferred_device__
 from anylabeling.views.labeling.shape import Shape
+from anylabeling.views.labeling.logger import logger
 from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
 from .model import Model
 from .types import AutoLabelingResult
@@ -30,7 +30,7 @@ class Grounding_DINO(Model):
             "model_path",
             "input_width",
             "input_height",
-            "box_threshold",
+            "conf_threshold",
             "text_threshold",
         ]
         widgets = [
@@ -65,7 +65,7 @@ class Grounding_DINO(Model):
         self.net.tokenizer = self.get_tokenlizer(
             self.model_configs.text_encoder_type
         )
-        self.box_threshold = self.config["box_threshold"]
+        self.box_threshold = self.config["conf_threshold"]
         self.text_threshold = self.config["text_threshold"]
         self.target_size = (
             self.config["input_width"],
@@ -74,11 +74,12 @@ class Grounding_DINO(Model):
         self.replace = True
 
     def set_auto_labeling_conf(self, value):
-        """ set auto labeling box threshold """
-        self.box_threshold = value
+        """set auto labeling box threshold"""
+        if value > 0:
+            self.box_threshold = value
 
     def set_auto_labeling_preserve_existing_annotations_state(self, state):
-        """ Toggle the preservation of existing annotations based on the checkbox state. """
+        """Toggle the preservation of existing annotations based on the checkbox state."""
         self.replace = not state
 
     def preprocess(self, image, text_prompt):
@@ -200,8 +201,8 @@ class Grounding_DINO(Model):
         try:
             image = qt_img_to_rgb_cv_img(image, image_path)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
 
         blob, inputs, caption = self.preprocess(image, text_prompt)
@@ -217,9 +218,7 @@ class Grounding_DINO(Model):
             x1, y1, x2, y2 = box
             label, score = label_info
             shape = Shape(
-                label=str(label),
-                score=float(score),
-                shape_type="rectangle"
+                label=str(label), score=float(score), shape_type="rectangle"
             )
             shape.add_point(QtCore.QPointF(x1, y1))
             shape.add_point(QtCore.QPointF(x2, y1))
@@ -358,11 +357,17 @@ class Grounding_DINO(Model):
 
     @staticmethod
     def get_tokenlizer(text_encoder_type):
-        current_dir = os.path.dirname(__file__)
+        import importlib.resources
+        from anylabeling.services.auto_labeling import configs
+
         cfg_name = text_encoder_type.replace("-", "_") + "_tokenizer.json"
-        cfg_file = os.path.join(current_dir, "configs", cfg_name)
-        tokenizer = Tokenizer.from_file(cfg_file)
-        return tokenizer
+        try:
+            with importlib.resources.path(configs.bert, cfg_name) as p:
+                tokenizer = Tokenizer.from_file(str(p))
+            return tokenizer
+        except Exception as e:
+            logger.error(f"Error loading tokenizer: {e}")
+            return None
 
     @staticmethod
     def get_phrases_from_posmap(

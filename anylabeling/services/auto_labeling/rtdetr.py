@@ -1,13 +1,13 @@
-import logging
 import os
-
 import cv2
 import numpy as np
+
 from PyQt5 import QtCore
 from PyQt5.QtCore import QCoreApplication
 
 from anylabeling.app_info import __preferred_device__
 from anylabeling.views.labeling.shape import Shape
+from anylabeling.views.labeling.logger import logger
 from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
 from .model import Model
 from .types import AutoLabelingResult
@@ -24,12 +24,12 @@ class RTDETR(Model):
             "name",
             "display_name",
             "model_path",
-            "score_threshold",
+            "conf_threshold",
             "classes",
         ]
         widgets = [
             "button_run",
-            "input_conf", 
+            "input_conf",
             "edit_conf",
             "toggle_preserve_existing_annotations",
         ]
@@ -53,15 +53,16 @@ class RTDETR(Model):
         self.net = OnnxBaseModel(model_abs_path, __preferred_device__)
         self.classes = self.config["classes"]
         self.input_shape = self.net.get_input_shape()[-2:]
-        self.conf_thres = self.config["score_threshold"]
+        self.conf_thres = self.config["conf_threshold"]
         self.replace = True
 
     def set_auto_labeling_conf(self, value):
-        """ set auto labeling confidence threshold """
-        self.conf_thres = value
+        """set auto labeling confidence threshold"""
+        if value > 0:
+            self.conf_thres = value
 
     def set_auto_labeling_preserve_existing_annotations_state(self, state):
-        """ Toggle the preservation of existing annotations based on the checkbox state. """
+        """Toggle the preservation of existing annotations based on the checkbox state."""
         self.replace = not state
 
     def preprocess(self, input_image):
@@ -167,8 +168,8 @@ class RTDETR(Model):
         try:
             image = qt_img_to_rgb_cv_img(image, image_path)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
 
         blob = self.preprocess(image)
@@ -186,7 +187,7 @@ class RTDETR(Model):
             shape = Shape(
                 label=result["label"],
                 score=result["score"],
-                shape_type="rectangle"
+                shape_type="rectangle",
             )
             shape.add_point(QtCore.QPointF(xmin, ymin))
             shape.add_point(QtCore.QPointF(xmax, ymin))

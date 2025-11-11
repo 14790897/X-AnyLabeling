@@ -1,0 +1,6 @@
+type: grounding_dino_api
+name: grounding_dino_api-r20250415
+provider: IDEA-Research
+display_name: GroundingDINO (API)
+iou_threshold: 0.80
+conf_threshold: 0.25

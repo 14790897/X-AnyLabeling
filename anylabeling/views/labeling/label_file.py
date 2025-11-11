@@ -1,7 +1,4 @@
-import os
 import base64
-import contextlib
-import io
 import json
 import os.path as osp
 
@@ -10,19 +7,13 @@ from PIL import ImageFile
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-from ...app_info import __version__
 from . import utils
-from .logger import logger
 from .label_converter import LabelConverter
+from .logger import logger
+from .schema import XLABEL_BASIC_FIELDS, create_xlabel_template
+from .shape import Shape
 
 PIL.Image.MAX_IMAGE_PIXELS = None
-
-
-@contextlib.contextmanager
-def io_open(name, mode):
-    assert mode in ["r", "w"]
-    encoding = "utf-8"
-    yield io.open(name, mode, encoding=encoding)
 
 
 class LabelFileError(Exception):
@@ -42,137 +33,6 @@ class LabelFile:
         self.filename = filename
 
     @staticmethod
-    def load_image_file(filename, default=None):
-        try:
-            # NOTE: This method includes a temporary workaround for handling EXIF orientation.
-            # It may result in a slight performance overhead due to the additional processing and file I/O.
-            # A more efficient solution should be considered in the future.
-            from PIL import Image, ExifTags
-            with Image.open(filename) as img:
-                exif_data=None
-                if hasattr(img, '_getexif'):
-                    exif_data = img._getexif()
-                if exif_data is not None:
-                    for tag, value in exif_data.items():
-                        tag_name = ExifTags.TAGS.get(tag, tag)
-                        if tag_name != "Orientation":
-                            continue
-                        if value == 3:
-                            img = img.rotate(180, expand=True)
-                        elif value == 6:
-                            img = img.rotate(270, expand=True)
-                        elif value == 8:
-                            img = img.rotate(90, expand=True)
-                        img.save(filename)
-            with open(filename, "rb") as f:
-                return f.read()
-        except:
-            logger.error("Failed opening image file: %s", filename)
-            return default
-
-    def load(self, filename):
-        keys = [
-            "version",
-            "imageData",
-            "imagePath",
-            "shapes",  # polygonal annotations
-            "flags",  # image level flags
-            "imageHeight",
-            "imageWidth",
-        ]
-        shape_keys = [
-            "label",
-            "score",
-            "points",
-            "group_id",
-            "difficult",
-            "shape_type",
-            "flags",
-            "description",
-            "attributes",
-        ]
-        try:
-            with io_open(filename, "r") as f:
-                data = json.load(f)
-            version = data.get("version")
-            if version is None:
-                logger.warning(
-                    "Loading JSON file (%s) of unknown version", filename
-                )
-
-            # Deprecated
-            if data["shapes"]:
-                for i in range(len(data["shapes"])):
-                    shape_type = data["shapes"][i]["shape_type"]
-                    shape_points = data["shapes"][i]["points"]
-                    if shape_type == "rectangle" and len(shape_points) == 2:
-                        logger.warning(
-                            "UserWarning: Diagonal vertex mode is deprecated in X-AnyLabeling release v2.2.0 or later.\n"
-                            "Please update your code to accommodate the new four-point mode."
-                        )
-                        data["shapes"][i][
-                            "points"
-                        ] = utils.rectangle_from_diagonal(shape_points)
-
-            data["imagePath"] = osp.basename(data["imagePath"])
-            if data["imageData"] is not None:
-                image_data = base64.b64decode(data["imageData"])
-            else:
-                # relative path from label file to relative path from cwd
-                if self.image_dir:
-                    image_path = osp.join(self.image_dir, data["imagePath"])
-                else:
-                    image_path = osp.join(
-                        osp.dirname(filename), data["imagePath"]
-                    )
-                image_data = self.load_image_file(image_path)
-            flags = data.get("flags") or {}
-            image_path = data["imagePath"]
-            self._check_image_height_and_width(
-                base64.b64encode(image_data).decode("utf-8"),
-                data.get("imageHeight"),
-                data.get("imageWidth"),
-            )
-            shapes = [
-                {
-                    "label": s["label"],
-                    "score": s.get("score", None),
-                    "points": s["points"],
-                    "shape_type": s.get("shape_type", "polygon"),
-                    "flags": s.get("flags", {}),
-                    "group_id": s.get("group_id"),
-                    "description": s.get("description"),
-                    "difficult": s.get("difficult", False),
-                    "attributes": s.get("attributes", {}),
-                    "other_data": {
-                        k: v for k, v in s.items() if k not in shape_keys
-                    },
-                }
-                for s in data["shapes"]
-            ]
-            for i, s in enumerate(data["shapes"]):
-                if s.get("shape_type", "polygon") == "rotation":
-                    shapes[i]["direction"] = s.get("direction", 0)
-        except Exception as e:  # noqa
-            raise LabelFileError(e) from e
-
-        other_data = {}
-        for key, value in data.items():
-            if key not in keys:
-                other_data[key] = value
-
-        # Add new fields if not available
-        other_data["text"] = other_data.get("text", "")
-
-        # Only replace data after everything is loaded.
-        self.flags = flags
-        self.shapes = shapes
-        self.image_path = image_path
-        self.image_data = image_data
-        self.filename = filename
-        self.other_data = other_data
-
-    @staticmethod
     def _check_image_height_and_width(image_data, image_height, image_width):
         img_arr = utils.img_b64_to_arr(image_data)
         if image_height is not None and img_arr.shape[0] != image_height:
@@ -188,6 +48,87 @@ class LabelFile:
             )
             image_width = img_arr.shape[1]
         return image_height, image_width
+
+    @staticmethod
+    def is_label_file(filename):
+        return osp.splitext(filename)[1].lower() == LabelFile.suffix
+
+    @staticmethod
+    def load_image_file(filename, default=None):
+        try:
+            with open(filename, "rb") as f:
+                return f.read()
+        except Exception:
+            logger.error(f"Failed opening image file: {filename}")
+            return default
+
+    def load(self, filename):
+        try:
+            with utils.io_open(filename, "r") as f:
+                data = json.load(f)
+
+            if data.get("version") is None:
+                logger.warning(
+                    f"Loading JSON file ({filename}) of unknown version"
+                )
+
+            if data["shapes"]:
+                for i in range(len(data["shapes"])):
+                    shape_points = data["shapes"][i]["points"]
+                    if (
+                        data["shapes"][i]["shape_type"] == "rectangle"
+                        and len(shape_points) == 2
+                    ):
+                        logger.warning(
+                            "UserWarning: Diagonal vertex mode is deprecated in X-AnyLabeling release v2.2.0 or later.\n"
+                            "Please update your code to accommodate the new four-point mode."
+                        )
+                        data["shapes"][i]["points"] = (
+                            utils.rectangle_from_diagonal(shape_points)
+                        )
+
+            data["imagePath"] = osp.basename(data["imagePath"])
+            if data["imageData"] is not None:
+                image_data = base64.b64decode(data["imageData"])
+            else:
+                # relative path from label file to relative path from cwd
+                if self.image_dir:
+                    image_path = osp.join(self.image_dir, data["imagePath"])
+                else:
+                    image_path = osp.join(
+                        osp.dirname(filename), data["imagePath"]
+                    )
+                image_data = self.load_image_file(image_path)
+
+            flags = data.get("flags", {})
+            image_path = data["imagePath"]
+
+            self._check_image_height_and_width(
+                base64.b64encode(image_data).decode("utf-8"),
+                data.get("imageHeight"),
+                data.get("imageWidth"),
+            )
+
+            shapes = [Shape().load_from_dict(s) for s in data["shapes"]]
+
+        except Exception as e:  # noqa
+            raise LabelFileError(e) from e
+
+        other_data = {}
+        for key, value in data.items():
+            if key not in XLABEL_BASIC_FIELDS:
+                other_data[key] = value
+
+        # Add new fields if not available
+        other_data["description"] = other_data.get("description", "")
+
+        # Only replace data after everything is loaded.
+        self.flags = flags
+        self.shapes = shapes
+        self.image_path = image_path
+        self.image_data = image_data
+        self.filename = filename
+        self.other_data = other_data
 
     def save(
         self,
@@ -223,26 +164,22 @@ class LabelFile:
                     [xmin, ymax],
                 ]
                 shapes[i] = shape
-        data = {
-            "version": __version__,
-            "flags": flags,
-            "shapes": shapes,
-            "imagePath": image_path,
-            "imageData": image_data,
-            "imageHeight": image_height,
-            "imageWidth": image_width,
-        }
+
+        data = create_xlabel_template(
+            flags=flags,
+            shapes=shapes,
+            image_path=image_path,
+            image_data=image_data,
+            image_height=image_height,
+            image_width=image_width,
+        )
 
         for key, value in other_data.items():
             assert key not in data
             data[key] = value
         try:
-            with io_open(filename, "w") as f:
+            with utils.io_open(filename, "w") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             self.filename = filename
         except Exception as e:  # noqa
             raise LabelFileError(e) from e
-
-    @staticmethod
-    def is_label_file(filename):
-        return osp.splitext(filename)[1].lower() == LabelFile.suffix

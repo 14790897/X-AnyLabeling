@@ -1,6 +1,4 @@
-import logging
 import os
-
 import numpy as np
 
 from PyQt5 import QtCore
@@ -8,7 +6,12 @@ from PyQt5.QtCore import QCoreApplication
 
 from anylabeling.app_info import __preferred_device__
 from anylabeling.views.labeling.shape import Shape
-from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
+from anylabeling.views.labeling.logger import logger
+from anylabeling.views.labeling.utils.opencv import (
+    get_bounding_boxes,
+    qt_img_to_rgb_cv_img,
+)
+
 
 from .types import AutoLabelingResult
 from .__base__.yolo import YOLO
@@ -37,8 +40,11 @@ class YOLOv5SegmentAnything(YOLO):
             "button_add_rect",
             "button_clear",
             "button_finish_object",
+            "button_auto_decode","button_cropping_sam",
             "output_label",
             "output_select_combobox",
+            "mask_fineness_slider",
+            "mask_fineness_value_label",
         ]
         output_modes = {
             "polygon": QCoreApplication.translate("Model", "Polygon"),
@@ -55,7 +61,7 @@ class YOLOv5SegmentAnything(YOLO):
         if not model_abs_path or not os.path.isfile(model_abs_path):
             raise FileNotFoundError(
                 QCoreApplication.translate(
-                    "Model", f"Could not download or initialize YOLOv5 model."
+                    "Model", "Could not download or initialize YOLOv5 model."
                 )
             )
         self.net = OnnxBaseModel(model_abs_path, __preferred_device__)
@@ -146,9 +152,15 @@ class YOLOv5SegmentAnything(YOLO):
         self.marks = []
         self.image_embed_cache = {}
 
+        self.epsilon = 0.001
+
     def set_auto_labeling_marks(self, marks):
         """Set auto labeling marks"""
         self.marks = marks
+
+    def set_mask_fineness(self, epsilon):
+        """Set mask fineness epsilon value"""
+        self.epsilon = epsilon
 
     def get_sam_results(self, approx_contours, label=None):
         # Contours to shapes
@@ -174,42 +186,21 @@ class YOLOv5SegmentAnything(YOLO):
                 shape.closed = True
                 shape.fill_color = "#000000"
                 shape.line_color = "#000000"
-                shape.line_width = 1
                 shape.label = "AUTOLABEL_OBJECT" if label is None else label
                 shape.selected = False
                 shapes.append(shape)
         elif self.output_mode == "rectangle":
-            x_min = 100000000
-            y_min = 100000000
-            x_max = 0
-            y_max = 0
-            for approx in approx_contours:
-                # Scale points
-                points = approx.reshape(-1, 2)
-                points[:, 0] = points[:, 0]
-                points[:, 1] = points[:, 1]
-                points = points.tolist()
-                if len(points) < 3:
-                    continue
-
-                # Get min/max
-                for point in points:
-                    x_min = min(x_min, point[0])
-                    y_min = min(y_min, point[1])
-                    x_max = max(x_max, point[0])
-                    y_max = max(y_max, point[1])
-
-            # Create shape
             shape = Shape(flags={})
-            shape.add_point(QtCore.QPointF(x_min, y_min))
-            shape.add_point(QtCore.QPointF(x_max, y_min))
-            shape.add_point(QtCore.QPointF(x_max, y_max))
-            shape.add_point(QtCore.QPointF(x_min, y_max))
-            shape.shape_type = "rectangle"
+            rectangle_box, _ = get_bounding_boxes(approx_contours[0])
+            xmin, ymin, xmax, ymax = rectangle_box
+            shape.add_point(QtCore.QPointF(int(xmin), int(ymin)))
+            shape.add_point(QtCore.QPointF(int(xmax), int(ymin)))
+            shape.add_point(QtCore.QPointF(int(xmax), int(ymax)))
+            shape.add_point(QtCore.QPointF(int(xmin), int(ymax)))
+            shape.shape_type = self.output_mode
             shape.closed = True
             shape.fill_color = "#000000"
             shape.line_color = "#000000"
-            shape.line_width = 1
             shape.label = "AUTOLABEL_OBJECT" if label is None else label
             shape.selected = False
             shapes.append(shape)
@@ -226,14 +217,14 @@ class YOLOv5SegmentAnything(YOLO):
         try:
             cv_image = qt_img_to_rgb_cv_img(image, filename)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
         if filename not in self.image_embed_cache:
             image_embedding = self.model.encode(cv_image)
             blob = self.preprocess(cv_image, upsample_mode="letterbox")
             outputs = self.net.get_ort_inference(blob=blob, extract=False)
-            boxes, _, class_ids, _ = self.postprocess(outputs)
+            boxes, class_ids, _, _, _ = self.postprocess(outputs)
 
             shapes = []
             for box, class_id in zip(boxes, class_ids):
@@ -250,7 +241,9 @@ class YOLOv5SegmentAnything(YOLO):
                     masks = masks[0][0]
                 else:
                     masks = masks[0]
-                approx_contours = self.model.get_approx_contours(masks)
+                approx_contours = self.model.get_approx_contours(
+                    masks, self.epsilon
+                )
                 results = self.get_sam_results(approx_contours, label=label)
                 shapes.append(results)
             result = AutoLabelingResult(shapes, replace=True)

@@ -1,13 +1,14 @@
-import logging
 import os
 import cv2
 import math
 import numpy as np
+
 from PyQt5 import QtCore
 from PyQt5.QtCore import QCoreApplication
 
 from anylabeling.app_info import __preferred_device__
 from anylabeling.views.labeling.shape import Shape
+from anylabeling.views.labeling.logger import logger
 from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
 from .model import Model
 from .types import AutoLabelingResult
@@ -26,15 +27,15 @@ class YOLOv5OBB(Model):
             "display_name",
             "model_path",
             "stride",
-            "nms_threshold",
-            "confidence_threshold",
+            "iou_threshold",
+            "conf_threshold",
             "classes",
         ]
         widgets = [
             "button_run",
-            "input_conf", 
+            "input_conf",
             "edit_conf",
-            "input_iou", 
+            "input_iou",
             "edit_iou",
             "toggle_preserve_existing_annotations",
         ]
@@ -59,23 +60,25 @@ class YOLOv5OBB(Model):
         self.net = OnnxBaseModel(model_abs_path, __preferred_device__)
         self.stride = self.config["stride"]
         self.classes = self.config["classes"]
-        self.nms_thres = self.config["nms_threshold"]
-        self.conf_thres = self.config["confidence_threshold"]
+        self.nms_thres = self.config["iou_threshold"]
+        self.conf_thres = self.config["conf_threshold"]
 
         _, _, h, w = self.net.get_input_shape()
         self.input_shape = (h, w)
         self.replace = True
 
     def set_auto_labeling_conf(self, value):
-        """ set auto labeling confidence threshold """
-        self.conf_thres = value
+        """set auto labeling confidence threshold"""
+        if value > 0:
+            self.conf_thres = value
 
     def set_auto_labeling_iou(self, value):
-        """ set auto labeling iou threshold """
-        self.nms_thres = value
+        """set auto labeling iou threshold"""
+        if value > 0:
+            self.nms_thres = value
 
     def set_auto_labeling_preserve_existing_annotations_state(self, state):
-        """ Toggle the preservation of existing annotations based on the checkbox state. """
+        """Toggle the preservation of existing annotations based on the checkbox state."""
         self.replace = not state
 
     def preprocess(self, img):
@@ -138,7 +141,7 @@ class YOLOv5OBB(Model):
             # (n, [poly conf cls])
             results = np.concatenate((pred_poly, det[:, -2:]), axis=1)
             return results
-        except:
+        except Exception:
             return []
 
     def predict_shapes(self, image, image_path=None):
@@ -152,8 +155,8 @@ class YOLOv5OBB(Model):
         try:
             image = qt_img_to_rgb_cv_img(image, image_path)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
 
         blob = self.preprocess(image)

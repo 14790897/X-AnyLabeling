@@ -1,8 +1,37 @@
-import logging
-
 import cv2
 import numpy as np
 from .general import refine_contours
+
+
+def cxcywh2xyxy(x):
+    """
+    Convert bounding box coordinates from (cx, cy, w, h) format to (x1, y1, x2, y2) format.
+
+    Args:
+        x (np.ndarray): The input bounding box coordinates in (cx, cy, w, h) format.
+    Returns:
+        y (np.ndarray): The bounding box coordinates in (x1, y1, x2, y2) format.
+    """
+
+    x_c = x[..., 0]
+    y_c = x[..., 1]
+    w = x[..., 2]
+    h = x[..., 3]
+
+    w = np.maximum(w, 0.0)
+    h = np.maximum(h, 0.0)
+
+    b = np.stack(
+        [
+            x_c - 0.5 * w,
+            y_c - 0.5 * h,
+            x_c + 0.5 * w,
+            y_c + 0.5 * h,
+        ],
+        axis=-1,
+    )
+
+    return b
 
 
 def xyxy2xywh(x):
@@ -12,7 +41,7 @@ def xyxy2xywh(x):
     Args:
         x (np.ndarray): The input bounding box coordinates in (x1, y1, x2, y2) format.
     Returns:
-       y (np.ndarray): The bounding box coordinates in (x, y, width, height) format.
+        y (np.ndarray): The bounding box coordinates in (x, y, width, height) format.
     """
     y = np.copy(x)
     y[..., 0] = (x[..., 0] + x[..., 2]) / 2  # x center
@@ -319,7 +348,14 @@ def rescale_box_and_landmark(input_shape, boxes, lmdks, image_shape):
     return np.round(boxes), np.round(lmdks)
 
 
-def rescale_tlwh(input_shape, boxes, image_shape, kpts=False, has_visible=True, multi_label=False):
+def rescale_tlwh(
+    input_shape,
+    boxes,
+    image_shape,
+    kpts=False,
+    has_visible=True,
+    multi_label=False,
+):
     """Rescale the output to the original image shape"""
     ratio = min(
         input_shape[0] / image_shape[0],
@@ -341,8 +377,12 @@ def rescale_tlwh(input_shape, boxes, image_shape, kpts=False, has_visible=True, 
         num_kpts = boxes.shape[1] - start_index
         interval = 3 if has_visible else 2
         for i in range(0, num_kpts, interval):
-            boxes[:, start_index + i] = (boxes[:, start_index + i] - padding[0]) / ratio
-            boxes[:, start_index + i + 1] = (boxes[:, start_index + i + 1] - padding[1]) / ratio
+            boxes[:, start_index + i] = (
+                boxes[:, start_index + i] - padding[0]
+            ) / ratio
+            boxes[:, start_index + i + 1] = (
+                boxes[:, start_index + i + 1] - padding[1]
+            ) / ratio
             # skip visible flag
             if has_visible and (i + 1) % interval == 0:
                 continue
