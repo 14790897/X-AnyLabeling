@@ -1,18 +1,19 @@
-import logging
 import os
-
 import cv2
 import numpy as np
 import onnxruntime as ort
+
 from PyQt5 import QtCore
 from PyQt5.QtCore import QCoreApplication
 
 from anylabeling.app_info import __preferred_device__
 from anylabeling.views.labeling.shape import Shape
+from anylabeling.views.labeling.logger import logger
 from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
 from .model import Model
 from .types import AutoLabelingResult
 from .utils.ppocr_utils.text_system import TextSystem
+from ...views.labeling.utils.general import is_possible_rectangle
 
 
 class Args:
@@ -33,7 +34,7 @@ class PPOCRv4(Model):
             "cls_model_path",
             "use_angle_cls",
         ]
-        widgets = ["button_run"]
+        widgets = ["button_run", "button_skip_detection"]
         output_modes = {
             "rectangle": QCoreApplication.translate("Model", "Rectangle"),
         }
@@ -53,6 +54,7 @@ class PPOCRv4(Model):
             )
 
         self.sess_opts = ort.SessionOptions()
+        self.sess_opts.log_severity_level = 3
         if "OMP_NUM_THREADS" in os.environ:
             self.sess_opts.inter_op_num_threads = int(
                 os.environ["OMP_NUM_THREADS"]
@@ -69,7 +71,6 @@ class PPOCRv4(Model):
         return net
 
     def __init__(self, model_config, on_message) -> None:
-        # Run the parent class's init method
         super().__init__(model_config, on_message)
 
         self.det_net = self.load_model("det_model_path")
@@ -78,6 +79,16 @@ class PPOCRv4(Model):
         self.drop_score = self.config.get("drop_score", 0.5)
         self.use_angle_cls = self.config["use_angle_cls"]
         self.current_dir = os.path.dirname(__file__)
+        self.lang = self.config.get("lang", "ch")
+        if self.lang == "ch":
+            self.rec_char_dict = "ppocr_keys_v1.txt"
+        elif self.lang == "japan":
+            self.rec_char_dict = "japan_dict.txt"
+        elif self.lang == "ppocrv5_dict":
+            self.rec_char_dict = "ppocrv5_dict.txt"
+
+        self.args = self.parse_args()
+        self.text_sys = TextSystem(self.args)
 
     def parse_args(self):
         args = Args(
@@ -131,7 +142,7 @@ class PPOCRv4(Model):
             rec_batch_num=6,
             max_text_length=25,
             rec_char_dict_path=os.path.join(
-                self.current_dir, "configs", "ppocr_keys_v1.txt"
+                self.current_dir, f"configs/ppocr/{self.rec_char_dict}"
             ),
             use_space_char=True,
             drop_score=self.drop_score,
@@ -143,7 +154,7 @@ class PPOCRv4(Model):
             # PGNet parmas
             e2e_pgnet_score_thresh=0.5,
             e2e_char_dict_path=os.path.join(
-                self.current_dir, "configs", "ppocr_ic15_dict.txt"
+                self.current_dir, "configs/ppocr/ppocr_ic15_dict.txt"
             ),
             e2e_pgnet_valid_set="totaltext",
             e2e_pgnet_mode="fast",
@@ -165,7 +176,7 @@ class PPOCRv4(Model):
         )
         return args
 
-    def predict_shapes(self, image, image_path=None):
+    def predict_shapes(self, image, image_path=None, existing_shapes=None):
         """
         Predict shapes from image
         """
@@ -177,19 +188,63 @@ class PPOCRv4(Model):
             image = qt_img_to_rgb_cv_img(image, image_path)
             image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
 
-        args = self.parse_args()
-        text_sys = TextSystem(args)
-        dt_boxes, rec_res, scores = text_sys(image)
+        selected_shapes, unselected_shapes = [], []
+        if existing_shapes is not None:
+            dt_boxes = []
+            for shape in existing_shapes:
+                if shape.selected:
+                    points = [
+                        [int(point.x()), int(point.y())]
+                        for point in shape.points
+                    ]
+                    dt_boxes.append(points)
+                    selected_shapes.append(shape)
+                else:
+                    unselected_shapes.append(shape)
+
+            if not dt_boxes:
+                dt_boxes = None
+        else:
+            dt_boxes = None
+
+        dt_boxes, rec_res, scores, sort_indices = self.text_sys(
+            image, dt_boxes=dt_boxes
+        )
+
+        if existing_shapes is not None:
+            shapes = []
+            for i in range(len(selected_shapes)):
+                ori_index = sort_indices[i]
+                shape = selected_shapes[ori_index]
+                updated_shape = Shape(
+                    label=shape.label,
+                    score=shape.score,
+                    shape_type=shape.shape_type,
+                    group_id=shape.group_id,
+                    description=rec_res[i][0],
+                    difficult=shape.difficult,
+                    flags=shape.flags,
+                    attributes=shape.attributes,
+                )
+                for point in shape.points:
+                    updated_shape.add_point(point)
+                if hasattr(shape, "closed"):
+                    updated_shape.closed = shape.closed
+                shapes.append(updated_shape)
+
+            shapes.extend(unselected_shapes)
+            result = AutoLabelingResult(shapes, replace=True)
+            return result
 
         results = [
             {
                 "description": rec_res[i][0],
                 "points": np.array(dt_boxes[i]).astype(np.int32).tolist(),
-                "score": float(scores[i])
+                "score": float(scores[i]),
             }
             for i in range(len(dt_boxes))
         ]
@@ -199,20 +254,29 @@ class PPOCRv4(Model):
             score = res["score"]
             points = res["points"]
             description = res["description"]
-            pt1, pt2, pt3, pt4 = points
-            pt2 = [pt3[0], pt1[1]]
-            pt4 = [pt1[0], pt3[1]]
+            shape_type = (
+                "rectangle" if is_possible_rectangle(points) else "polygon"
+            )
             shape = Shape(
                 label="text",
                 score=score,
-                shape_type="rectangle",
+                shape_type=shape_type,
                 group_id=int(i),
                 description=description,
             )
-            shape.add_point(QtCore.QPointF(*pt1))
-            shape.add_point(QtCore.QPointF(*pt2))
-            shape.add_point(QtCore.QPointF(*pt3))
-            shape.add_point(QtCore.QPointF(*pt4))
+            if shape_type == "rectangle":
+                pt1, pt2, pt3, pt4 = points
+                pt2 = [pt3[0], pt1[1]]
+                pt4 = [pt1[0], pt3[1]]
+                shape.add_point(QtCore.QPointF(*pt1))
+                shape.add_point(QtCore.QPointF(*pt2))
+                shape.add_point(QtCore.QPointF(*pt3))
+                shape.add_point(QtCore.QPointF(*pt4))
+            elif shape_type == "polygon":
+                for point in points:
+                    shape.add_point(QtCore.QPointF(*point))
+                shape.add_point(QtCore.QPointF(*points[0]))
+                shape.closed = True
             shapes.append(shape)
 
         result = AutoLabelingResult(shapes, replace=True)
@@ -222,3 +286,4 @@ class PPOCRv4(Model):
         del self.det_net
         del self.rec_net
         del self.cls_net
+        del self.text_sys

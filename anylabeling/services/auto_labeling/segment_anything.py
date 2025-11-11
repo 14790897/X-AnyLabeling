@@ -1,9 +1,8 @@
-import logging
 import os
 import traceback
-
 import cv2
 import numpy as np
+
 from PyQt5 import QtCore
 from PyQt5.QtCore import QThread
 from PyQt5.QtCore import QCoreApplication
@@ -11,7 +10,12 @@ from PyQt5.QtCore import QCoreApplication
 from anylabeling.app_info import __preferred_device__
 from anylabeling.utils import GenericWorker
 from anylabeling.views.labeling.shape import Shape
-from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
+from anylabeling.views.labeling.logger import logger
+from anylabeling.views.labeling.utils.opencv import (
+    get_bounding_boxes,
+    qt_img_to_rgb_cv_img,
+)
+from anylabeling.services.auto_labeling.utils import calculate_rotation_theta
 
 from .lru_cache import LRUCache
 from .model import Model
@@ -39,6 +43,9 @@ class SegmentAnything(Model):
             "button_add_rect",
             "button_clear",
             "button_finish_object",
+            "button_auto_decode","button_cropping_sam",
+            "mask_fineness_slider",
+            "mask_fineness_value_label",
         ]
         output_modes = {
             "polygon": QCoreApplication.translate("Model", "Polygon"),
@@ -105,6 +112,14 @@ class SegmentAnything(Model):
         clip_img_model_path = self.config.get("img_model_path", "")
         if clip_txt_model_path and clip_img_model_path:
             if self.config["model_type"] == "cn_clip":
+                clip_txt_model_path = self.get_model_abs_path(
+                    self.config, "txt_model_path"
+                )
+                _ = self.get_model_abs_path(self.config, "txt_extra_path")
+                clip_img_model_path = self.get_model_abs_path(
+                    self.config, "img_model_path"
+                )
+                _ = self.get_model_abs_path(self.config, "img_extra_path")
                 model_arch = self.config["model_arch"]
                 self.clip_net = ChineseClipONNX(
                     clip_txt_model_path,
@@ -114,9 +129,15 @@ class SegmentAnything(Model):
                 )
             self.classes = self.config.get("classes", [])
 
+        self.epsilon = 0.001
+
     def set_auto_labeling_marks(self, marks):
         """Set auto labeling marks"""
         self.marks = marks
+
+    def set_mask_fineness(self, epsilon):
+        """Set mask fineness epsilon value"""
+        self.epsilon = epsilon
 
     def post_process(self, masks, image=None):
         """
@@ -133,8 +154,8 @@ class SegmentAnything(Model):
         # Refine contours
         approx_contours = []
         for contour in contours:
-            # Approximate contour
-            epsilon = 0.001 * cv2.arcLength(contour, True)
+            # Approximate contour using configurable epsilon
+            epsilon = self.epsilon * cv2.arcLength(contour, True)
             approx = cv2.approxPolyDP(contour, epsilon, True)
             approx_contours.append(approx)
 
@@ -183,17 +204,15 @@ class SegmentAnything(Model):
                 shape.closed = True
                 shape.fill_color = "#000000"
                 shape.line_color = "#000000"
-                shape.line_width = 1
                 shape.label = "AUTOLABEL_OBJECT"
                 shape.selected = False
                 shapes.append(shape)
-        elif self.output_mode in ["rectangle", "rotation"]:
+        elif self.output_mode == "rectangle":
             x_min = 100000000
             y_min = 100000000
             x_max = 0
             y_max = 0
             for approx in approx_contours:
-                # Scale points
                 points = approx.reshape(-1, 2)
                 points[:, 0] = points[:, 0]
                 points[:, 1] = points[:, 1]
@@ -201,30 +220,38 @@ class SegmentAnything(Model):
                 if len(points) < 3:
                     continue
 
-                # Get min/max
                 for point in points:
                     x_min = min(x_min, point[0])
                     y_min = min(y_min, point[1])
                     x_max = max(x_max, point[0])
                     y_max = max(y_max, point[1])
 
-            # Create shape
             shape = Shape(flags={})
             shape.add_point(QtCore.QPointF(x_min, y_min))
             shape.add_point(QtCore.QPointF(x_max, y_min))
             shape.add_point(QtCore.QPointF(x_max, y_max))
             shape.add_point(QtCore.QPointF(x_min, y_max))
-            shape.shape_type = (
-                "rectangle" if self.output_mode == "rectangle" else "rotation"
-            )
+            shape.shape_type = "rectangle"
             shape.closed = True
             shape.fill_color = "#000000"
             shape.line_color = "#000000"
-            shape.line_width = 1
             if self.clip_net is not None and self.classes:
                 img = image[y_min:y_max, x_min:x_max]
                 out = self.clip_net(img, self.classes)
                 shape.cache_label = self.classes[int(np.argmax(out))]
+            shape.label = "AUTOLABEL_OBJECT"
+            shape.selected = False
+            shapes.append(shape)
+        elif self.output_mode == "rotation":
+            shape = Shape(flags={})
+            rotation_box = get_bounding_boxes(approx_contours[0])[1]
+            for point in rotation_box:
+                shape.add_point(QtCore.QPointF(int(point[0]), int(point[1])))
+            shape.direction = calculate_rotation_theta(rotation_box)
+            shape.shape_type = self.output_mode
+            shape.closed = True
+            shape.fill_color = "#000000"
+            shape.line_color = "#000000"
             shape.label = "AUTOLABEL_OBJECT"
             shape.selected = False
             shapes.append(shape)
@@ -262,8 +289,8 @@ class SegmentAnything(Model):
                 masks = masks[0]
             shapes = self.post_process(masks, cv_image)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             traceback.print_exc()
             return AutoLabelingResult([], replace=False)
 

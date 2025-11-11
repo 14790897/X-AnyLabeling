@@ -1,10 +1,9 @@
-import logging
 import os
-import traceback
-
 import cv2
-import numpy as np
+import traceback
 import onnxruntime
+import numpy as np
+
 from typing import Dict
 from copy import deepcopy
 from tokenizers import Tokenizer
@@ -16,7 +15,13 @@ from PyQt5.QtCore import QCoreApplication
 from anylabeling.utils import GenericWorker
 from anylabeling.app_info import __preferred_device__
 from anylabeling.views.labeling.shape import Shape
-from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
+from anylabeling.views.labeling.logger import logger
+from anylabeling.views.labeling.utils.opencv import (
+    get_bounding_boxes,
+    qt_img_to_rgb_cv_img,
+)
+from anylabeling.services.auto_labeling.utils import calculate_rotation_theta
+
 from .model import Model
 from .types import AutoLabelingResult
 from .lru_cache import LRUCache
@@ -224,6 +229,7 @@ class GroundingSAM(Model):
         ]
         widgets = [
             "edit_text",
+            "button_send",
             "output_label",
             "output_select_combobox",
             "button_add_point",
@@ -231,6 +237,9 @@ class GroundingSAM(Model):
             "button_add_rect",
             "button_clear",
             "button_finish_object",
+            "button_auto_decode","button_cropping_sam",
+            "mask_fineness_slider",
+            "mask_fineness_value_label",
         ]
         output_modes = {
             "polygon": QCoreApplication.translate("Model", "Polygon"),
@@ -318,9 +327,15 @@ class GroundingSAM(Model):
         self.pre_inference_worker = None
         self.stop_inference = False
 
+        self.epsilon = 0.001
+
     def set_auto_labeling_marks(self, marks):
         """Set auto labeling marks"""
         self.marks = marks
+
+    def set_mask_fineness(self, epsilon):
+        """Set mask fineness epsilon value"""
+        self.epsilon = epsilon
 
     def preprocess(self, image, text_prompt, img_mask=None):
         # Resize the image
@@ -451,8 +466,8 @@ class GroundingSAM(Model):
         # Refine contours
         approx_contours = []
         for contour in contours:
-            # Approximate contour
-            epsilon = 0.001 * cv2.arcLength(contour, True)
+            # Approximate contour using configurable epsilon
+            epsilon = self.epsilon * cv2.arcLength(contour, True)
             approx = cv2.approxPolyDP(contour, epsilon, True)
             approx_contours.append(approx)
 
@@ -465,6 +480,7 @@ class GroundingSAM(Model):
                 for contour, area in zip(approx_contours, areas)
                 if area < image_size * 0.9
             ]
+            approx_contours = filtered_approx_contours
 
         # Remove small contours (area < 20% of average area)
         if len(approx_contours) > 1:
@@ -501,44 +517,30 @@ class GroundingSAM(Model):
                 shape.closed = True
                 shape.fill_color = "#000000"
                 shape.line_color = "#000000"
-                shape.line_width = 1
                 shape.label = "AUTOLABEL_OBJECT" if label is None else label
                 shape.selected = False
                 shapes.append(shape)
         elif self.output_mode in ["rectangle", "rotation"]:
-            x_min = 100000000
-            y_min = 100000000
-            x_max = 0
-            y_max = 0
-            for approx in approx_contours:
-                # Scale points
-                points = approx.reshape(-1, 2)
-                points[:, 0] = points[:, 0]
-                points[:, 1] = points[:, 1]
-                points = points.tolist()
-                if len(points) < 3:
-                    continue
-
-                # Get min/max
-                for point in points:
-                    x_min = min(x_min, point[0])
-                    y_min = min(y_min, point[1])
-                    x_max = max(x_max, point[0])
-                    y_max = max(y_max, point[1])
-
-            # Create shape
             shape = Shape(flags={})
-            shape.add_point(QtCore.QPointF(x_min, y_min))
-            shape.add_point(QtCore.QPointF(x_max, y_min))
-            shape.add_point(QtCore.QPointF(x_max, y_max))
-            shape.add_point(QtCore.QPointF(x_min, y_max))
-            shape.shape_type = (
-                "rectangle" if self.output_mode == "rectangle" else "rotation"
+            rectangle_box, rotation_box = get_bounding_boxes(
+                approx_contours[0]
             )
+            xmin, ymin, xmax, ymax = rectangle_box
+            if self.output_mode == "rectangle":
+                shape.add_point(QtCore.QPointF(int(xmin), int(ymin)))
+                shape.add_point(QtCore.QPointF(int(xmax), int(ymin)))
+                shape.add_point(QtCore.QPointF(int(xmax), int(ymax)))
+                shape.add_point(QtCore.QPointF(int(xmin), int(ymax)))
+            else:
+                for point in rotation_box:
+                    shape.add_point(
+                        QtCore.QPointF(int(point[0]), int(point[1]))
+                    )
+                shape.direction = calculate_rotation_theta(rotation_box)
+            shape.shape_type = self.output_mode
             shape.closed = True
             shape.fill_color = "#000000"
             shape.line_color = "#000000"
-            shape.line_width = 1
             shape.label = "AUTOLABEL_OBJECT" if label is None else label
             shape.selected = False
             shapes.append(shape)
@@ -556,8 +558,8 @@ class GroundingSAM(Model):
         try:
             cv_image = qt_img_to_rgb_cv_img(image, image_path)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
 
         try:
@@ -616,8 +618,8 @@ class GroundingSAM(Model):
                 result = AutoLabelingResult(shapes, replace=False)
             return result
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             traceback.print_exc()
             return AutoLabelingResult([], replace=False)
 
@@ -770,11 +772,17 @@ class GroundingSAM(Model):
 
     @staticmethod
     def get_tokenlizer(text_encoder_type):
-        current_dir = os.path.dirname(__file__)
+        import importlib.resources
+        from anylabeling.services.auto_labeling import configs
+
         cfg_name = text_encoder_type.replace("-", "_") + "_tokenizer.json"
-        cfg_file = os.path.join(current_dir, "configs", cfg_name)
-        tokenizer = Tokenizer.from_file(cfg_file)
-        return tokenizer
+        try:
+            with importlib.resources.path(configs.bert, cfg_name) as p:
+                tokenizer = Tokenizer.from_file(str(p))
+            return tokenizer
+        except Exception as e:
+            logger.error(f"Error loading tokenizer: {e}")
+            return None
 
     @staticmethod
     def get_phrases_from_posmap(

@@ -4,6 +4,7 @@ import math
 from PyQt5 import QtCore, QtGui
 
 from . import utils
+from ..labeling.logger import logger
 
 # TODO(unknown):
 # - [opt] Store paths instead of creating new ones at each paint.
@@ -32,6 +33,18 @@ class Shape:
     # Flag for all other handles on the current shape
     NEAR_VERTEX = 1
 
+    KEYS = [
+        "label",
+        "score",
+        "points",
+        "group_id",
+        "difficult",
+        "shape_type",
+        "flags",
+        "description",
+        "attributes",
+    ]
+
     # The following class variables influence the drawing of all shape objects.
     line_color = DEFAULT_LINE_COLOR
     fill_color = DEFAULT_FILL_COLOR
@@ -56,12 +69,14 @@ class Shape:
         difficult=False,
         direction=0,
         attributes={},
+        kie_linking=[],
     ):
         self.label = label
         self.score = score
         self.group_id = group_id
         self.description = description
         self.difficult = difficult
+        self.kie_linking = kie_linking
         self.points = []
         self.fill = False
         self.selected = False
@@ -70,6 +85,7 @@ class Shape:
         self.other_data = {}
         self.attributes = attributes
         self.cache_label = None
+        self.cache_description = None
         self.visible = True
 
         # Rotation setting
@@ -94,6 +110,45 @@ class Shape:
             # is used for drawing the pending line a different color.
             self.line_color = line_color
         self.shape_type = shape_type
+
+    def to_dict(self):
+        dictData = {
+            "label": self.label,
+            "score": self.score,
+            "points": [(p.x(), p.y()) for p in self.points],
+            "group_id": self.group_id,
+            "description": self.description,
+            "difficult": self.difficult,
+            "shape_type": self.shape_type,
+            "flags": self.flags,
+            "attributes": self.attributes,
+            "kie_linking": self.kie_linking,
+        }
+        if self.shape_type == "rotation":
+            dictData["direction"] = self.direction
+        dictData = {
+            **self.other_data,
+            **dictData,
+        }
+        return dictData
+
+    def load_from_dict(self, data: dict, close=True):
+        self.label = data["label"]
+        self.score = data.get("score")
+        self.points = [QtCore.QPointF(p[0], p[1]) for p in data["points"]]
+        self.group_id = data.get("group_id")
+        self.description = data.get("description", "")
+        self.difficult = data.get("difficult", False)
+        self.shape_type = data.get("shape_type", "polygon")
+        self.flags = data.get("flags", {})
+        self.attributes = data.get("attributes", {})
+        self.kie_linking = data.get("kie_linking", [])
+        if self.shape_type == "rotation":
+            self.direction = data.get("direction", 0)
+        self.other_data = {k: v for k, v in data.items() if k not in self.KEYS}
+        if close:
+            self.close()
+        return self
 
     @property
     def shape_type(self):
@@ -229,11 +284,10 @@ class Shape:
                 line_path.moveTo(self.points[0])
                 for i, p in enumerate(self.points):
                     line_path.lineTo(p)
-                    if self.selected:
-                        self.draw_vertex(vrtx_path, i)
+                    self.draw_vertex(vrtx_path, i)
             elif self.shape_type == "point":
                 assert len(self.points) == 1
-                self.draw_vertex(vrtx_path, 0)
+                self.draw_vertex(vrtx_path, 0, True)
             else:
                 line_path.moveTo(self.points[0])
                 # Uncommenting the following line will draw 2 paths
@@ -260,7 +314,7 @@ class Shape:
                 )
                 painter.fillPath(line_path, color)
 
-    def draw_vertex(self, path, i):
+    def draw_vertex(self, path, i, show_difficult=False):
         """Draw a vertex"""
         d = self.point_size / self.scale
         shape = self.point_type
@@ -272,12 +326,32 @@ class Shape:
             self._vertex_fill_color = self.hvertex_fill_color
         else:
             self._vertex_fill_color = self.vertex_fill_color
-        if shape == self.P_SQUARE:
-            path.addRect(point.x() - d / 2, point.y() - d / 2, d, d)
-        elif shape == self.P_ROUND:
-            path.addEllipse(point, d / 2.0, d / 2.0)
+        if shape in (self.P_SQUARE, self.P_ROUND):
+            if self.difficult and show_difficult:
+                scale_factor = 1.5
+                triangle_path = QtGui.QPainterPath()
+                triangle_path.moveTo(
+                    point.x(), point.y() - d * scale_factor / 2
+                )
+                triangle_path.lineTo(
+                    point.x() - d * scale_factor / 2,
+                    point.y() + d * scale_factor / 2,
+                )
+                triangle_path.lineTo(
+                    point.x() + d * scale_factor / 2,
+                    point.y() + d * scale_factor / 2,
+                )
+                triangle_path.closeSubpath()
+                path.addPath(triangle_path)
+                if shape == self.P_ROUND:
+                    path.addPath(triangle_path)
+            else:
+                if shape == self.P_SQUARE:
+                    path.addRect(point.x() - d / 2, point.y() - d / 2, d, d)
+                elif shape == self.P_ROUND:
+                    path.addEllipse(point, d / 2.0, d / 2.0)
         else:
-            print("Unsupported vertex shape")
+            logger.error("Unsupported vertex shape")
 
     def nearest_vertex(self, point, epsilon):
         """Find the index of the nearest vertex to a point

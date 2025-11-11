@@ -24,10 +24,10 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <property name="spacing">
-    <number>0</number>
+    <number>5</number>
    </property>
    <property name="leftMargin">
-    <number>2</number>
+    <number>0</number>
    </property>
    <property name="topMargin">
     <number>2</number>
@@ -41,36 +41,18 @@
    <item>
     <layout class="QHBoxLayout" name="model_selection">
      <property name="spacing">
-      <number>2</number>
+      <number>6</number>
      </property>
      <property name="topMargin">
       <number>0</number>
      </property>
-     <item>
-      <widget class="QLabel" name="model_label">
-       <property name="text">
-        <string>Auto</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QComboBox" name="model_select_combobox">
-       <property name="enabled">
-        <bool>true</bool>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>200</width>
-         <height>0</height>
-        </size>
-       </property>
-       <item>
-        <property name="text">
-         <string>No Model</string>
-        </property>
-       </item>
-      </widget>
-     </item>
+    <item>
+        <widget class="QPushButton" name="model_selection_button">
+            <property name="text">
+                <string>No Model</string>
+            </property>
+        </widget>
+    </item>
      <item>
       <widget class="QLabel" name="output_label">
        <property name="text">
@@ -95,6 +77,134 @@
          <string>rotation</string>
         </property>
        </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="upn_select_combobox">
+        <property name="currentIndex">
+            <number>0</number>
+        </property>
+       <item>
+        <property name="text">
+         <string>coarse_grained_prompt</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>fine_grained_prompt</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="florence2_select_combobox">
+        <property name="currentIndex">
+            <number>0</number>
+        </property>
+       <item>
+        <property name="text">
+         <string>caption</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>detailed_cap</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>more_detailed_cap</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>od</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>region_proposal</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>dense_region_cap</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>cap_to_pg</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>refer_exp_seg</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>region_to_seg</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>ovd</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>region_to_cat</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>region_to_desc</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>ocr</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>ocr_with_region</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="gd_select_combobox">
+        <property name="currentIndex">
+            <number>0</number>
+        </property>
+       <item>
+        <property name="text">
+         <string>GroundingDino_1_6_Pro</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>GroundingDino_1_6_Edge</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>GroundingDino_1_5_Pro</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>GroundingDino_1_5_Edge</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="remote_server_select_combobox">
+        <property name="currentIndex">
+            <number>-1</number>
+        </property>
       </widget>
      </item>
      <item>
@@ -212,18 +322,59 @@
      <item>
       <widget class="QPushButton" name="button_finish_object">
        <property name="text">
-        <string>Finish Object (f)</string>
+        <string>Finish (f)</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="toggle_preserve_existing_annotations">
+      <widget class="QPushButton" name="button_auto_decode">
+       <property name="text">
+        <string>AMD (Off)</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="button_cropping_sam">
+       <property name="text">
+        <string>TinyObj (Off)</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="button_skip_detection">
+       <property name="text">
+        <string>Skip Det (Off)</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="toggle_preserve_existing_annotations">
           <property name="text">
-              <string>Preserve existing annotations</string>
+              <string>Replace (On)</string>
           </property>
-          <property name="checked">
-              <bool>false</bool>
-          </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="button_set_api_token">
+       <property name="text">
+        <string>Set API Token</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="button_reset_tracker">
+       <property name="text">
+        <string>Reset Tracker</string>
+       </property>
       </widget>
      </item>
      <item>
@@ -238,6 +389,51 @@
         </size>
        </property>
       </spacer>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="mask_fineness_layout">
+       <property name="spacing">
+        <number>8</number>
+       </property>
+       <item>
+        <widget class="QLabel" name="mask_fineness_value_label">
+         <property name="text">
+          <string>0.001</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignRight|Qt::AlignVCenter</set>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>45</width>
+           <height>16</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>45</width>
+           <height>16777215</height>
+          </size>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QSlider" name="mask_fineness_slider">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="minimum">
+          <number>1</number>
+         </property>
+         <property name="maximum">
+          <number>100</number>
+         </property>
+         <property name="value">
+          <number>10</number>
+         </property>
+        </widget>
+       </item>
+      </layout>
      </item>
      <item>
       <widget class="QPushButton" name="button_close">
@@ -274,7 +470,7 @@
      </property>
      <property name="styleSheet">
       <string notr="true">margin-top: 0;
-margin-bottom: 10px;</string>
+margin-bottom: 2px;</string>
      </property>
      <property name="text">
       <string>Ready!</string>

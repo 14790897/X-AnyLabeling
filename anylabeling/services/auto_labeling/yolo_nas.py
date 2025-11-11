@@ -1,13 +1,13 @@
-import logging
 import os
-
 import cv2
 import numpy as np
+
 from PyQt5 import QtCore
 from PyQt5.QtCore import QCoreApplication
 
 from anylabeling.app_info import __preferred_device__
 from anylabeling.views.labeling.shape import Shape
+from anylabeling.views.labeling.logger import logger
 from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
 from .model import Model
 from .types import AutoLabelingResult
@@ -228,15 +228,15 @@ class YOLO_NAS(Model):
             "name",
             "display_name",
             "model_path",
-            "confidence_threshold",
-            "nms_threshold",
+            "conf_threshold",
+            "iou_threshold",
             "classes",
         ]
         widgets = [
             "button_run",
-            "input_conf", 
+            "input_conf",
             "edit_conf",
-            "input_iou", 
+            "input_iou",
             "edit_iou",
             "toggle_preserve_existing_annotations",
         ]
@@ -265,24 +265,26 @@ class YOLO_NAS(Model):
         )
         self.postprocess = Postprocessing(
             YOLO_NAS_DEFAULT_PROCESSING_STEPS,
-            self.config["nms_threshold"],
-            self.config["confidence_threshold"],
+            self.config["iou_threshold"],
+            self.config["conf_threshold"],
         )
         self.filter_classes = self.config.get("filter_classes", [])
-        self.nms_thres = self.config["nms_threshold"]
-        self.conf_thres = self.config["confidence_threshold"]
+        self.nms_thres = self.config["iou_threshold"]
+        self.conf_thres = self.config["conf_threshold"]
         self.replace = True
 
     def set_auto_labeling_conf(self, value):
-        """ set auto labeling confidence threshold """
-        self.conf_thres = value
+        """set auto labeling confidence threshold"""
+        if value > 0:
+            self.conf_thres = value
 
     def set_auto_labeling_iou(self, value):
-        """ set auto labeling iou threshold """
-        self.nms_thres = value
+        """set auto labeling iou threshold"""
+        if value > 0:
+            self.nms_thres = value
 
     def set_auto_labeling_preserve_existing_annotations_state(self, state):
-        """ Toggle the preservation of existing annotations based on the checkbox state. """
+        """Toggle the preservation of existing annotations based on the checkbox state."""
         self.replace = not state
 
     def predict_shapes(self, image, image_path=None):
@@ -296,8 +298,8 @@ class YOLO_NAS(Model):
         try:
             image = qt_img_to_rgb_cv_img(image, image_path)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
 
         blob, prep_meta = self.preprocess(image)
@@ -319,7 +321,9 @@ class YOLO_NAS(Model):
             ymin = y
             xmax = x + w
             ymax = y + h
-            shape = Shape(label=label, score=score, shape_type="rectangle", flags={})
+            shape = Shape(
+                label=label, score=score, shape_type="rectangle", flags={}
+            )
             shape.add_point(QtCore.QPointF(xmin, ymin))
             shape.add_point(QtCore.QPointF(xmax, ymin))
             shape.add_point(QtCore.QPointF(xmax, ymax))

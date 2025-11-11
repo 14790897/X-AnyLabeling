@@ -1,15 +1,16 @@
-import logging
 import os
-
 import cv2
 import numpy as np
+
 from PyQt5.QtCore import QCoreApplication
 
 from anylabeling.app_info import __preferred_device__
+from anylabeling.views.labeling.logger import logger
 from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
 from .model import Model
 from .types import AutoLabelingResult
 from .engines.build_onnx_engine import OnnxBaseModel
+from . import _THUMBNAIL_RENDER_MODELS
 
 
 class Resize(object):
@@ -245,6 +246,10 @@ class DepthAnything(Model):
             )
         self.net = OnnxBaseModel(model_abs_path, __preferred_device__)
         self.input_shape = self.net.get_input_shape()[-2:]
+        self.render_mode = self.config.get("render_mode", "color")
+        self.save_dir, self.file_ext = _THUMBNAIL_RENDER_MODELS[
+            "depth_anything"
+        ]
 
     def preprocess(self, input_image):
         """
@@ -298,8 +303,9 @@ class DepthAnything(Model):
         depth = cv2.resize(outputs[0, 0], (orig_w, orig_h))
         depth = (depth - depth.min()) / (depth.max() - depth.min()) * 255.0
         depth = depth.astype(np.uint8)
-        depth_color = cv2.applyColorMap(depth, cv2.COLORMAP_INFERNO)
-        return depth_color
+        if self.render_mode == "color":
+            return cv2.applyColorMap(depth, cv2.COLORMAP_INFERNO)
+        return depth
 
     def predict_shapes(self, image, image_path=None):
         """
@@ -311,8 +317,8 @@ class DepthAnything(Model):
         try:
             image = qt_img_to_rgb_cv_img(image, image_path)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
 
         blob, orig_shape = self.preprocess(image)
@@ -320,11 +326,11 @@ class DepthAnything(Model):
         depth = self.postprocess(output, orig_shape)
 
         image_dir_path = os.path.dirname(image_path)
-        save_path = os.path.join(image_dir_path, "..", "depth")
+        save_path = os.path.join(image_dir_path, "..", self.save_dir)
         save_path = os.path.realpath(save_path)
         os.makedirs(save_path, exist_ok=True)
         image_file_name = os.path.basename(image_path)
-        save_name = os.path.splitext(image_file_name)[0] + ".png"
+        save_name = os.path.splitext(image_file_name)[0] + self.file_ext
         save_file = os.path.join(save_path, save_name)
         cv2.imwrite(save_file, depth)
 

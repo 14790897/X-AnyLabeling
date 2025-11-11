@@ -1,13 +1,11 @@
-import logging
 import os
 
-import cv2
-import numpy as np
 from PyQt5 import QtCore
 from PyQt5.QtCore import QCoreApplication
 
 from anylabeling.app_info import __preferred_device__
 from anylabeling.views.labeling.shape import Shape
+from anylabeling.views.labeling.logger import logger
 from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
 from .model import Model
 from .types import AutoLabelingResult
@@ -58,9 +56,13 @@ class RTMDet_Pose(Model):
         self.kpt_thr = self.config.get("kpt_threshold", 0.3)
         self.score_thr = self.config.get("score_threshold", 0.3)
         self.kpt_classes = self.config.get("keypoints", [])
-        self.rtmdet = RTMDet(det_model_abs_path, score_thr=self.score_thr)
+        self.rtmdet = RTMDet(
+            det_model_abs_path,
+            score_thr=self.score_thr,
+            device=__preferred_device__,
+        )
         if self.config["pose"] == "rtmo":
-            self.pose = RTMO(pose_model_abs_path)
+            self.pose = RTMO(pose_model_abs_path, device=__preferred_device__)
         else:
             self.pose = None
 
@@ -75,8 +77,8 @@ class RTMDet_Pose(Model):
         try:
             image = qt_img_to_rgb_cv_img(image, image_path)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
 
         det_results = self.rtmdet(image)
@@ -98,9 +100,9 @@ class RTMDet_Pose(Model):
             img = image[y1:y2, x1:x2]
             try:
                 keypoints, scores = self.pose(img)
-            except:
+            except Exception:
                 keypoints, scores = [], []
-            if not self.pose and len(keypoints) == 0:
+            if not self.pose or len(keypoints) == 0:
                 continue
             for j in range(len(keypoints[0])):
                 kpt_point, score = keypoints[0][j], scores[0][j]

@@ -141,7 +141,7 @@ class DistillationCTCLabelDecode(CTCLabelDecode):
         model_name=["student"],
         key=None,
         multi_head=False,
-        **kwargs
+        **kwargs,
     ):
         super(DistillationCTCLabelDecode, self).__init__(
             character_dict_path, use_space_char
@@ -691,7 +691,7 @@ class DistillationSARLabelDecode(SARLabelDecode):
         model_name=["student"],
         key=None,
         multi_head=False,
-        **kwargs
+        **kwargs,
     ):
         super(DistillationSARLabelDecode, self).__init__(
             character_dict_path, use_space_char
@@ -829,7 +829,7 @@ class NRTRLabelDecode(BaseRecLabelDecode):
             for idx in range(len(text_index[batch_idx])):
                 try:
                     char_idx = self.character[int(text_index[batch_idx][idx])]
-                except:
+                except Exception:
                     continue
                 if char_idx == "</s>":  # end
                     break

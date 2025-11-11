@@ -4,8 +4,11 @@ import onnxruntime as ort
 
 
 class OnnxBaseModel:
-    def __init__(self, model_path, device_type: str = "cpu"):
+    def __init__(
+        self, model_path, device_type: str = "cpu", log_severity_level: int = 3
+    ):
         self.sess_opts = ort.SessionOptions()
+        self.sess_opts.log_severity_level = log_severity_level
         if "OMP_NUM_THREADS" in os.environ:
             self.sess_opts.inter_op_num_threads = int(
                 os.environ["OMP_NUM_THREADS"]
@@ -23,7 +26,7 @@ class OnnxBaseModel:
         self.model_path = model_path
 
     def get_ort_inference(
-        self, blob, inputs=None, extract=True, squeeze=False
+        self, blob=None, inputs=None, extract=True, squeeze=False
     ):
         if inputs is None:
             inputs = self.get_input_name()

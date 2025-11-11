@@ -1,22 +1,9 @@
-import os.path as osp
-
-import imgviz
-import numpy as np
-import PIL.Image
+import io
+import contextlib
 
 
-def lblsave(filename, lbl):
-    if osp.splitext(filename)[1] != ".png":
-        filename += ".png"
-    # Assume label ranses [-1, 254] for int32,
-    # and [0, 255] for uint8 as VOC.
-    if lbl.min() >= -1 and lbl.max() < 255:
-        lbl_pil = PIL.Image.fromarray(lbl.astype(np.uint8), mode="P")
-        colormap = imgviz.label_colormap()
-        lbl_pil.putpalette(colormap.flatten())
-        lbl_pil.save(filename)
-    else:
-        raise ValueError(
-            f"[{filename}] Cannot save the pixel-wise class label as PNG. "
-            "Please consider using the .npy format."
-        )
+@contextlib.contextmanager
+def io_open(name, mode):
+    assert mode in ["r", "w"]
+    encoding = "utf-8"
+    yield io.open(name, mode, encoding=encoding)

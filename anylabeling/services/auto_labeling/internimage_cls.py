@@ -1,13 +1,12 @@
-import logging
 import os
-
 import cv2
 import numpy as np
+
 from PyQt5 import QtCore
 from PyQt5.QtCore import QCoreApplication
 
 from anylabeling.app_info import __preferred_device__
-from anylabeling.views.labeling.shape import Shape
+from anylabeling.views.labeling.logger import logger
 from anylabeling.views.labeling.utils.opencv import qt_img_to_rgb_cv_img
 from .model import Model
 from .types import AutoLabelingResult
@@ -40,7 +39,7 @@ class InternImage_CLS(Model):
             raise FileNotFoundError(
                 QCoreApplication.translate(
                     "Model",
-                    f"Could not download or initialize InternImage model.",
+                    "Could not download or initialize InternImage model.",
                 )
             )
         self.net = OnnxBaseModel(model_abs_path, __preferred_device__)
@@ -109,28 +108,16 @@ class InternImage_CLS(Model):
         try:
             image = qt_img_to_rgb_cv_img(image, image_path)
         except Exception as e:  # noqa
-            logging.warning("Could not inference model")
-            logging.warning(e)
+            logger.warning("Could not inference model")
+            logger.warning(e)
             return []
 
         blob = self.preprocess(image)
         predictions = self.net.get_ort_inference(blob, extract=False)
         label = self.postprocess(predictions)
-
-        shapes = []
-        shape = Shape(
-            label=label,
-            shape_type="rectangle",
+        result = AutoLabelingResult(
+            shapes=[], replace=False, description=label
         )
-        h, w = image.shape[:2]
-        shape.add_point(QtCore.QPointF(0, 0))
-        shape.add_point(QtCore.QPointF(w, 0))
-        shape.add_point(QtCore.QPointF(w, h))
-        shape.add_point(QtCore.QPointF(0, h))
-        shapes.append(shape)
-
-        result = AutoLabelingResult(shapes, replace=True)
-
         return result
 
     def unload(self):

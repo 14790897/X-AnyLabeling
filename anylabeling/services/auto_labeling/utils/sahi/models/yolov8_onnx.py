@@ -1,8 +1,6 @@
-import logging
-from typing import Dict, List, Optional
-
 import cv2
 import numpy as np
+from typing import List, Optional
 
 from anylabeling.services.auto_labeling.utils.sahi.models.base import (
     DetectionModel,
@@ -17,12 +15,10 @@ from anylabeling.services.auto_labeling.utils.sahi.utils.compatibility import (
 from anylabeling.services.auto_labeling.utils.sahi.utils.import_utils import (
     check_requirements,
 )
-
 from anylabeling.services.auto_labeling.engines.build_onnx_engine import (
     OnnxBaseModel,
 )
-
-logger = logging.getLogger(__name__)
+from anylabeling.views.labeling.logger import logger
 
 
 class Yolov8ONNX(object):

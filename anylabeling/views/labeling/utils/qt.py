@@ -1,14 +1,51 @@
+import natsort
+import os
 import os.path as osp
 from math import sqrt
 
 import numpy as np
+from PyQt5.QtCore import Qt
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-here = osp.dirname(osp.abspath(__file__))
+from anylabeling.views.labeling.logger import logger
 
 
-def new_icon(icon):
-    return QtGui.QIcon(osp.join(f":/images/images/{icon}.png"))
+def scan_all_images(folder_path):
+    try:
+        extensions = [
+            f".{fmt.data().decode().lower()}"
+            for fmt in QtGui.QImageReader.supportedImageFormats()
+        ]
+
+        images = []
+        folder_path = osp.normpath(osp.abspath(folder_path))
+
+        for root, _, files in os.walk(folder_path):
+            for file in files:
+                if file.lower().endswith(tuple(extensions)):
+                    relative_path = osp.normpath(osp.join(root, file))
+                    relative_path = str(relative_path)
+                    images.append(relative_path)
+
+        try:
+            return natsort.natsorted(images)
+        except (OSError, ValueError) as e:
+            logger.warning(
+                f"Warning: Natural sort failed, falling back to regular sort: {e}"
+            )
+            return sorted(images)
+    except Exception as e:
+        logger.error(f"Error scanning images: {e}")
+        return []
+
+
+def new_icon(icon, ext="png"):
+    return QtGui.QIcon(osp.join(f":/images/images/{icon}.{ext}"))
+
+
+def new_icon_path(icon, ext="png"):
+    """Returns the resource path string for an icon."""
+    return f":/images/images/{icon}.{ext}"
 
 
 def new_button(text, icon=None, slot=None):
@@ -30,6 +67,7 @@ def new_action(
     checkable=False,
     enabled=True,
     checked=False,
+    auto_trigger=False,
 ):
     """Create a new action and assign callbacks, shortcuts, etc."""
     action = QtWidgets.QAction(text, parent)
@@ -50,6 +88,8 @@ def new_action(
         action.setCheckable(True)
     action.setEnabled(enabled)
     action.setChecked(checked)
+    if auto_trigger:
+        action.triggered.emit(checked)
     return action
 
 
@@ -95,3 +135,75 @@ def distance_to_line(point, line):
 def fmt_shortcut(text):
     mod, key = text.split("+", 1)
     return f"<b>{mod}</b>+<b>{key}</b>"
+
+
+def on_thumbnail_click(widget):
+    def _on_click(event):
+        if widget.thumbnail_pixmap and not widget.thumbnail_pixmap.isNull():
+            dialog = QtWidgets.QDialog(widget)
+            dialog.setWindowTitle(
+                widget.tr("Thumbnail - Click anywhere to close")
+            )
+            dialog.setModal(True)
+
+            main_layout = QtWidgets.QVBoxLayout()
+            main_layout.setContentsMargins(0, 0, 0, 0)
+
+            h_layout = QtWidgets.QHBoxLayout()
+            h_layout.setContentsMargins(5, 5, 5, 5)
+            h_layout.setSpacing(0)
+
+            label = QtWidgets.QLabel()
+
+            screen = QtWidgets.QApplication.primaryScreen()
+            screen_size = screen.availableGeometry()
+            screen_ratio = 0.35
+
+            pixmap_width = widget.thumbnail_pixmap.width()
+            pixmap_height = widget.thumbnail_pixmap.height()
+
+            max_width = int(screen_size.width() * screen_ratio)
+            max_height = int(screen_size.height() * screen_ratio)
+
+            width_ratio = max_width / pixmap_width
+            height_ratio = max_height / pixmap_height
+            scale_ratio = min(width_ratio, height_ratio)
+
+            display_width = int(pixmap_width * scale_ratio)
+            display_height = int(pixmap_height * scale_ratio)
+
+            scaled_pixmap = widget.thumbnail_pixmap.scaled(
+                display_width,
+                display_height,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+
+            label.setPixmap(scaled_pixmap)
+            label.setFixedSize(display_width, display_height)
+            label.setAlignment(Qt.AlignCenter)
+
+            h_layout.addStretch(1)
+            h_layout.addWidget(label)
+            h_layout.addStretch(1)
+
+            main_layout.addStretch(1)
+            main_layout.addLayout(h_layout)
+            main_layout.addStretch(1)
+
+            label.mousePressEvent = lambda e: dialog.accept()
+            dialog.mousePressEvent = lambda e: dialog.accept()
+
+            dialog.setLayout(main_layout)
+
+            total_width = display_width + 50
+            total_height = display_height + 70
+            dialog.setFixedSize(total_width, total_height)
+
+            dialog.move(
+                (screen_size.width() - total_width) // 2,
+                (screen_size.height() - total_height) // 2,
+            )
+            dialog.exec_()
+
+    return _on_click
